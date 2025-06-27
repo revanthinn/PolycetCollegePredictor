@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>POLYCET College Predictor</title>
     <meta name="description" content="Advanced college prediction system for Telangana POLYCET 2024">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><path fill='%23fbbf24' d='M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z'/></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -40,6 +41,44 @@
                 gender: "Male",
                 place: "",
             });
+
+            // Function to calculate admission chances based on rank difference
+            const calculateAdmissionChances = (userRank, collegeRank) => {
+                // Calculate how much better the user's rank is compared to college closing rank
+                // If college closing rank is HIGHER than user rank, user has better chances
+                const rankDifference = collegeRank - userRank;
+                
+                // If college closing rank is higher (worse) than user rank, user has good chances
+                if (rankDifference > 0) {
+                    // College closing rank is higher than user rank = Good chances
+                    if (rankDifference >= 1000) {
+                        return { level: "Excellent", percentage: "95%+", color: "bg-green-600", textColor: "text-green-600" };
+                    } else if (rankDifference >= 500) {
+                        return { level: "Very High", percentage: "90-95%", color: "bg-green-500", textColor: "text-green-500" };
+                    } else if (rankDifference >= 200) {
+                        return { level: "High", percentage: "80-90%", color: "bg-green-400", textColor: "text-green-400" };
+                    } else if (rankDifference >= 50) {
+                        return { level: "Good", percentage: "70-80%", color: "bg-yellow-400", textColor: "text-yellow-400" };
+                    } else {
+                        return { level: "Moderate", percentage: "60-70%", color: "bg-orange-400", textColor: "text-orange-400" };
+                    }
+                } else if (rankDifference === 0) {
+                    // User rank equals college closing rank
+                    return { level: "Fair", percentage: "50-60%", color: "bg-orange-500", textColor: "text-orange-500" };
+                } else {
+                    // College closing rank is lower (better) than user rank = Lower chances
+                    const absDifference = Math.abs(rankDifference);
+                    if (absDifference <= 100) {
+                        return { level: "Low", percentage: "30-50%", color: "bg-red-400", textColor: "text-red-400" };
+                    } else if (absDifference <= 300) {
+                        return { level: "Very Low", percentage: "15-30%", color: "bg-red-500", textColor: "text-red-500" };
+                    } else if (absDifference <= 500) {
+                        return { level: "Unlikely", percentage: "5-15%", color: "bg-red-600", textColor: "text-red-600" };
+                    } else {
+                        return { level: "No Chance", percentage: "<5%", color: "bg-gray-600", textColor: "text-gray-400" };
+                    }
+                }
+            };
 
             // Function to get the correct rank column name
             const getRankColumn = (category, gender) => {
@@ -124,6 +163,7 @@
                     })
                     .map((row) => {
                         const collegeRank = Number(findRankValue(row) || 0);
+                        const admissionChances = calculateAdmissionChances(userRank, collegeRank);
                         
                         return {
                             "Institute Name": row["Institute Name"] || row["Institute"] || row["College"] || "Unknown Institute",
@@ -132,8 +172,10 @@
                             "Closing Rank": collegeRank,
                             Fee: `₹${row["Fee"] || row["FEE"] || row["Fees"] || "Not Available"}`,
                             "Affiliated To": row["Affiliated To"] || row["Affiliation"] || "SBTET",
+                            "Admission Chances": admissionChances,
                         };
                     })
+                    .filter((college) => college["Admission Chances"].level !== "No Chance") // Exclude colleges with no chance
                     .sort((a, b) => a["Closing Rank"] - b["Closing Rank"]);
 
                 console.log("Found eligible colleges:", eligibleColleges);
@@ -560,6 +602,9 @@
                                                     <th className="px-2 py-2 sm:px-4 sm:py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
                                                         Affiliation
                                                     </th>
+                                                    <th className="px-2 py-2 sm:px-4 sm:py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
+                                                        Admission Chances
+                                                    </th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-700">
@@ -575,6 +620,16 @@
                                                         </td>
                                                         <td className="px-2 py-2 sm:px-4 sm:py-4 text-yellow-400 font-semibold whitespace-nowrap">{row["Fee"]}</td>
                                                         <td className="px-2 py-2 sm:px-4 sm:py-4 text-gray-300 whitespace-nowrap">{row["Affiliated To"]}</td>
+                                                        <td className="px-2 py-2 sm:px-4 sm:py-4">
+                                                            <div className="flex flex-col space-y-1">
+                                                                <span className={`inline-flex items-center px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${row["Admission Chances"].color} text-black`}>
+                                                                    {row["Admission Chances"].level}
+                                                                </span>
+                                                                <span className={`text-xs ${row["Admission Chances"].textColor} font-semibold`}>
+                                                                    {row["Admission Chances"].percentage}
+                                                                </span>
+                                                            </div>
+                                                        </td>
                                                     </tr>
                                                 ))}
                                             </tbody>
