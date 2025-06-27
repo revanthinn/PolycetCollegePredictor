@@ -166,12 +166,12 @@
                         const admissionChances = calculateAdmissionChances(userRank, collegeRank);
                         
                         return {
+                            "Institute Code": row["Inst\n Code"] || row["Inst Code"] || row["Institute Code"] || "N/A",
                             "Institute Name": row["Institute Name"] || row["Institute"] || row["College"] || "Unknown Institute",
                             Place: row["Place"] || row["PLACE"] || row["Location"] || "Unknown Location",
                             "Branch Name": row["Branch Name"] || row["Branch"] || row["Course"] || "Unknown Branch",
                             "Closing Rank": collegeRank,
                             Fee: `₹${row["Fee"] || row["FEE"] || row["Fees"] || "Not Available"}`,
-                            "Affiliated To": row["Affiliated To"] || row["Affiliation"] || "SBTET",
                             "Admission Chances": admissionChances,
                         };
                     })
@@ -587,6 +587,9 @@
                                                 <thead className="bg-black">
                                                     <tr>
                                                         <th className="px-4 py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
+                                                            Institute Code
+                                                        </th>
+                                                        <th className="px-4 py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
                                                             Institute Name
                                                         </th>
                                                         <th className="px-4 py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
@@ -602,9 +605,6 @@
                                                             Fee
                                                         </th>
                                                         <th className="px-4 py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
-                                                            Affiliation
-                                                        </th>
-                                                        <th className="px-4 py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
                                                             Admission Chances
                                                         </th>
                                                     </tr>
@@ -612,6 +612,7 @@
                                                 <tbody className="divide-y divide-gray-700">
                                                     {results.map((row, idx) => (
                                                         <tr key={idx} className="hover:bg-gray-800/50 transition-all duration-200">
+                                                            <td className="px-4 py-4 text-white font-medium whitespace-nowrap">{row["Institute Code"]}</td>
                                                             <td className="px-4 py-4 text-white font-medium whitespace-nowrap">{row["Institute Name"]}</td>
                                                             <td className="px-4 py-4 text-gray-300 whitespace-nowrap">{row["Place"]}</td>
                                                             <td className="px-4 py-4 text-gray-300 whitespace-nowrap">{row["Branch Name"]}</td>
@@ -621,7 +622,6 @@
                                                                 </span>
                                                             </td>
                                                             <td className="px-4 py-4 text-yellow-400 font-semibold whitespace-nowrap">{row["Fee"]}</td>
-                                                            <td className="px-4 py-4 text-gray-300 whitespace-nowrap">{row["Affiliated To"]}</td>
                                                             <td className="px-4 py-4">
                                                                 <div className="flex flex-col space-y-1">
                                                                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${row["Admission Chances"].color} text-black`}>
@@ -645,7 +645,10 @@
                                                     <div className="space-y-3">
                                                         {/* Institute Name */}
                                                         <div>
-                                                            <h3 className="text-white font-semibold text-base leading-tight">{row["Institute Name"]}</h3>
+                                                            <h3 className="text-white font-semibold text-base leading-tight">
+                                                                <span className="text-yellow-400 font-bold mr-2">{row["Institute Code"]}</span>
+                                                                {row["Institute Name"]}
+                                                            </h3>
                                                         </div>
                                                         
                                                         {/* Location and Branch */}
@@ -688,9 +691,6 @@
                                                                 <span className="text-xs text-gray-400 mt-1">
                                                                     Admission Probability
                                                                 </span>
-                                                            </div>
-                                                            <div className="text-right text-xs text-gray-400">
-                                                                {row["Affiliated To"]}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -739,7 +739,7 @@
                                             <div>
                                                 <h4 className="text-white font-semibold text-lg mb-2">Results Analysis</h4>
                                                 <p className="text-gray-400">
-                                                    Review eligible colleges sorted by closing rank. Compare fees, locations, and affiliations to make
+                                                    Review eligible colleges sorted by closing rank. Compare fees, locations, and institute codes to make
                                                     informed decisions.
                                                 </p>
                                             </div>
