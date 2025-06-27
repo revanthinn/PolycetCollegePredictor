@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POLYCET College Predictor</title>
+    <meta name="description" content="Advanced college prediction system for Telangana POLYCET 2024">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-black text-white">
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        const genders = [
+            { value: "Male", label: "Male" },
+            { value: "Female", label: "Female" },
+        ];
+
+        const categories = ["OC", "BC-A", "BC-B", "BC-C", "BC-D", "BC-E", "SC", "ST", "EWS"];
+
+        function App() {
+            const [polycetData, setPolycetData] = useState([]);
+            const [branches, setBranches] = useState([]);
+            const [places, setPlaces] = useState([]);
+            const [results, setResults] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState("");
+            const [dataLoaded, setDataLoaded] = useState(false);
+            const [showDisclaimer, setShowDisclaimer] = useState(true);
+            const [form, setForm] = useState({
+                rank: "",
+                branch: "",
+                category: "",
+                gender: "Male",
+                place: "",
+            });
+
+            // Function to get the correct rank column name
+            const getRankColumn = (category, gender) => {
+                const genderSuffix = gender === "Male" ? "BOYS" : "GIRLS";
+
+                switch (category) {
+                    case "OC":
+                        return `OC ${genderSuffix}`;
+                    case "BC-A":
+                        return `BC_A ${genderSuffix}`;
+                    case "BC-B":
+                        return `BC_B ${genderSuffix}`;
+                    case "BC-C":
+                        return `BC_C ${genderSuffix}`;
+                    case "BC-D":
+                        return `BC_D ${genderSuffix}`;
+                    case "BC-E":
+                        return `BC_E ${genderSuffix}`;
+                    case "SC":
+                        return `SC ${genderSuffix}`;
+                    case "ST":
+                        return `ST ${genderSuffix}`;
+                    case "EWS":
+                        return gender === "Male" ? "EWS GEN OU" : "EWS GIRLS OU";
+                    default:
+                        return `OC ${genderSuffix}`;
+                }
+            };
+
+            // Function to find eligible colleges with simple prediction
+            const findEligibleColleges = (userRank, branch, category, gender, place) => {
+                console.log("Finding colleges for:", { userRank, branch, category, gender, place });
+                console.log("Available data:", polycetData.length, "records");
+
+                const rankColumn = getRankColumn(category, gender);
+                console.log("Looking for rank column:", rankColumn);
+
+                // Find the actual column name in the row that matches, ignoring whitespace and case
+                const findRankValue = (row) => {
+                    const normalizedRankColumn = rankColumn.replace(/\s+/g, " ").trim().toLowerCase();
+                    for (const key of Object.keys(row)) {
+                        const normalizedKey = key.replace(/\s+/g, " ").trim().toLowerCase();
+                        if (normalizedKey === normalizedRankColumn) {
+                            return row[key];
+                        }
+                    }
+                    return null;
+                };
+
+                const eligibleColleges = polycetData
+                    .filter((row) => {
+                        if (!row || typeof row !== "object") return false;
+
+                        // Branch matching - exact match on full branch name
+                        let branchMatch = false;
+                        const branchCol = Object.keys(row).find(
+                            (k) => k.replace(/\s+/g, " ").toLowerCase().includes("branch name")
+                        );
+                        if (branchCol && row[branchCol] && row[branchCol].toString() === branch) {
+                            branchMatch = true;
+                        }
+
+                        // Place matching - optional and flexible
+                        let placeMatch = true; // Default to true if no place filter
+                        if (place) {
+                            placeMatch = false;
+                            const placeColumns = ["Place", "PLACE", "Location", "LOCATION", "District", "DISTRICT"];
+                            for (const col of placeColumns) {
+                                if (row[col] && row[col].toString().toLowerCase().includes(place.toLowerCase())) {
+                                    placeMatch = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Rank matching - fetch colleges from 25% below user's rank
+                        const collegeRank = Number(findRankValue(row));
+                        const minRank = Math.floor(userRank * 0.75); // 25% below user's rank
+                        const rankEligible = collegeRank && collegeRank > 0 && collegeRank >= minRank;
+
+                        return branchMatch && placeMatch && rankEligible;
+                    })
+                    .map((row) => {
+                        const collegeRank = Number(findRankValue(row) || 0);
+                        
+                        return {
+                            "Institute Name": row["Institute Name"] || row["Institute"] || row["College"] || "Unknown Institute",
+                            Place: row["Place"] || row["PLACE"] || row["Location"] || "Unknown Location",
+                            "Branch Name": row["Branch Name"] || row["Branch"] || row["Course"] || "Unknown Branch",
+                            "Closing Rank": collegeRank,
+                            Fee: `₹${row["Fee"] || row["FEE"] || row["Fees"] || "Not Available"}`,
+                            "Affiliated To": row["Affiliated To"] || row["Affiliation"] || "SBTET",
+                        };
+                    })
+                    .sort((a, b) => a["Closing Rank"] - b["Closing Rank"]);
+
+                console.log("Found eligible colleges:", eligibleColleges);
+                return { colleges: eligibleColleges };
+            };
+
+            useEffect(() => {
+                const loadData = async () => {
+                    console.log("loadData called");
+                    try {
+                        setDataLoaded(false);
+                        setError("");
+                        setPolycetData([]);
+                        setBranches([]);
+                        setPlaces([]);
+
+                        const response = await fetch("./TGPOLYCET2024FIRSTPHASELASTRANKS.csv");
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        const csvText = await response.text();
+                        if (csvText.length < 100) {
+                            throw new Error("CSV file appears to be empty or too small");
+                        }
+                        
+                        // Use PapaParse for robust CSV parsing
+                        const parsed = Papa.parse(csvText, {
+                            header: true,
+                            skipEmptyLines: true,
+                            beforeFirstChunk: (chunk) => {
+                                return chunk.split('\n').slice(1).join('\n');
+                            }
+                        });
+                        
+                        console.log("PapaParse result", parsed);
+                        if (!parsed.data || parsed.data.length === 0) {
+                            throw new Error("CSV loaded but no valid data rows found.");
+                        }
+                        
+                        const dataRows = parsed.data;
+                        setPolycetData(dataRows);
+                        
+                        // Extract headers from PapaParse meta
+                        const headers = (parsed.meta.fields || Object.keys(dataRows[0] || {})).map(h => h.replace(/\s+/g, " ").trim());
+                        console.log('CSV Headers:', headers);
+                        
+                        // Extract branches (use only full branch names for dropdown)
+                        const branchCol = headers.find(
+                            (h) => h.replace(/\s+/g, " ").toLowerCase().includes("branch name")
+                        );
+                        let realBranches = [];
+                        if (branchCol) {
+                            realBranches = [
+                                ...new Set(
+                                    dataRows
+                                        .map((row) => row[branchCol])
+                                        .filter((b) => b && typeof b === "string" && b.length > 0)
+                                ),
+                            ];
+                            if (realBranches.length > 0) {
+                                setBranches(realBranches);
+                            }
+                        }
+                        
+                        // Extract places
+                        const placeColumns = headers.filter(
+                            (h) =>
+                                h.replace(/\s+/g, " ").toLowerCase().includes("place") ||
+                                h.replace(/\s+/g, " ").toLowerCase().includes("location") ||
+                                h.replace(/\s+/g, " ").toLowerCase().includes("district")
+                        );
+                        if (placeColumns.length > 0) {
+                            const realPlaces = [
+                                ...new Set(
+                                    dataRows
+                                        .map((row) => {
+                                            for (const col of placeColumns) {
+                                                if (row[col]) return row[col];
+                                                const normCol = col.replace(/\s+/g, " ").replace(/"/g, "").trim();
+                                                if (row[normCol]) return row[normCol];
+                                            }
+                                            return null;
+                                        })
+                                        .filter((p) => p && typeof p === "string" && p.length > 0)
+                                ),
+                            ].sort();
+                            if (realPlaces.length > 0) {
+                                setPlaces(realPlaces);
+                            }
+                        }
+                        setDataLoaded(true);
+                    } catch (err) {
+                        setError(`CSV loading failed: ${err.message}. Please ensure the CSV file is present and accessible.`);
+                        setDataLoaded(false);
+                    }
+                };
+                loadData();
+            }, []);
+
+            const handleChange = (e) => {
+                setForm({ ...form, [e.target.name]: e.target.value });
+            };
+
+            const handleSubmit = async (e) => {
+                if (e && e.preventDefault) e.preventDefault();
+
+                if (!dataLoaded) {
+                    setError("Data is still loading. Please wait...");
+                    return;
+                }
+
+                setError("");
+                setResults([]);
+                setLoading(true);
+
+                // Simulate processing delay
+                setTimeout(() => {
+                    try {
+                        const rank = Number.parseInt(form.rank);
+                        if (rank && rank > 0 && form.branch && form.category) {
+                            console.log("Starting prediction with:", {
+                                rank,
+                                branch: form.branch,
+                                category: form.category,
+                                gender: form.gender,
+                                place: form.place,
+                            });
+
+                            const { colleges } = findEligibleColleges(rank, form.branch, form.category, form.gender, form.place);
+
+                            setResults(colleges);
+
+                            if (colleges.length === 0) {
+                                const placeText = form.place ? ` in ${form.place}` : "";
+                                setError(
+                                    `No colleges found for rank ${rank} in ${form.branch} under ${form.category} category for ${form.gender}${placeText}. This could be because:
+                                    1. Your rank might be too high for the selected branch
+                                    2. The CSV data might not contain matching records
+                                    3. Try selecting a different branch or removing location filter
+                                    
+                                    Currently using ${polycetData.length} college records for prediction.`
+                                );
+                            }
+                        } else {
+                            setError("Please fill all required fields with valid data.");
+                        }
+                    } catch (err) {
+                        console.error("Error processing request:", err);
+                        setError("Error processing your request. Please try again.");
+                    }
+                    setLoading(false);
+                }, 1000);
+            };
+
+            const handleClearPlaceFilter = () => {
+                setForm({ ...form, place: "" });
+            };
+
+            return (
+                <div className="min-h-screen bg-black relative">
+                    {/* Disclaimer Modal */}
+                    {showDisclaimer && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
+                            <div className="bg-gray-900 border-2 border-yellow-400 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 text-center">
+                                <h2 className="text-2xl font-bold text-yellow-400 mb-4">Disclaimer</h2>
+                                <p className="text-gray-200 mb-4 text-base">
+                                    <strong>Important:</strong> This tool provides <span className="text-yellow-400 font-semibold">predicted results</span> only.<br/>
+                                    It does <span className="text-yellow-400 font-semibold">not guarantee</span> a seat in any college.<br/>
+                                    All predictions are based solely on official Telangana POLYCET cutoff data.<br/>
+                                    Actual seat allotment depends on official counseling and seat availability.
+                                </p>
+                                <button
+                                    className="mt-2 px-6 py-2 bg-yellow-400 hover:bg-yellow-500 text-black font-bold rounded-lg text-base transition-all duration-200 shadow-md focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                                    onClick={() => setShowDisclaimer(false)}
+                                >
+                                    I Understand
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Main Content */}
+                    <div className="relative z-10 py-6 px-2 sm:py-8 sm:px-4 md:px-8">
+                        <div className="max-w-7xl mx-auto">
+                            {/* Professional Header Section */}
+                            <div className="text-center mb-8 md:mb-12">
+                                <div className="mb-8">
+                                    <div className="inline-flex items-center justify-center w-20 h-20 bg-yellow-400 rounded-full mb-6">
+                                        <svg className="w-10 h-10 text-black" fill="currentColor" viewBox="0 0 20 20">
+                                            <path
+                                                fillRule="evenodd"
+                                                d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z"
+                                                clipRule="evenodd"
+                                            />
+                                        </svg>
+                                    </div>
+                                    <h1 className="text-5xl md:text-6xl font-bold text-white mb-4 tracking-tight">
+                                        <span className="block text-3xl sm:text-5xl md:text-6xl font-bold">POLYCET</span>
+                                        <span className="block text-yellow-400 text-xl sm:text-3xl md:text-4xl font-light mt-2">College Predictor</span>
+                                    </h1>
+                                    <div className="w-16 sm:w-24 h-1 bg-yellow-400 mx-auto mb-6"></div>
+                                    <p className="text-gray-300 text-lg max-w-3xl mx-auto leading-relaxed mb-6">
+                                        Advanced college prediction system powered by official Telangana POLYCET cutoff data. Make informed
+                                        decisions about your polytechnic education with precision analytics.
+                                    </p>
+                                    <div className="inline-flex items-center bg-yellow-400 text-black px-6 py-2 rounded-full font-semibold">
+                                        <span className="w-2 h-2 bg-black rounded-full mr-3 animate-pulse"></span>
+                                        Developed by Revanth Adepu
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Professional Form Card */}
+                            <form className="bg-gray-900 border border-yellow-400/20 rounded-lg shadow-2xl p-4 sm:p-8 mb-8" onSubmit={handleSubmit}>
+                                <div className="mb-8">
+                                    <h2 className="text-2xl font-bold text-white mb-2">Prediction Parameters</h2>
+                                    <p className="text-gray-400">Enter your details to find eligible colleges</p>
+                                </div>
+
+                                <div className="space-y-6 sm:space-y-8">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                                        {/* Rank Input */}
+                                        <div>
+                                            <label className="block text-sm font-semibold text-yellow-400 mb-3 uppercase tracking-wide">
+                                                POLYCET Rank *
+                                            </label>
+                                            <input
+                                                type="number"
+                                                name="rank"
+                                                value={form.rank}
+                                                onChange={handleChange}
+                                                required
+                                                min="1"
+                                                className="w-full px-3 py-2 sm:px-4 sm:py-3 bg-black border border-gray-700 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none transition-all duration-300 text-white placeholder-gray-500 text-sm sm:text-base"
+                                                placeholder="Enter your rank (e.g., 1000)"
+                                            />
+                                        </div>
+
+                                        {/* Branch Select */}
+                                        <div>
+                                            <label className="block text-sm font-semibold text-yellow-400 mb-3 uppercase tracking-wide">
+                                                Branch *
+                                            </label>
+                                            <select
+                                                name="branch"
+                                                value={form.branch}
+                                                onChange={handleChange}
+                                                required
+                                                className="w-full px-3 py-2 sm:px-4 sm:py-3 bg-black border border-gray-700 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none transition-all duration-300 text-white text-sm sm:text-base"
+                                            >
+                                                <option value="">Select Branch</option>
+                                                {branches.map((branch) => (
+                                                    <option key={branch} value={branch}>
+                                                        {branch}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Category Select */}
+                                        <div>
+                                            <label className="block text-sm font-semibold text-yellow-400 mb-3 uppercase tracking-wide">
+                                                Category *
+                                            </label>
+                                            <select
+                                                name="category"
+                                                value={form.category}
+                                                onChange={handleChange}
+                                                required
+                                                className="w-full px-3 py-2 sm:px-4 sm:py-3 bg-black border border-gray-700 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none transition-all duration-300 text-white text-sm sm:text-base"
+                                            >
+                                                <option value="">Select Category</option>
+                                                {categories.map((category) => (
+                                                    <option key={category} value={category}>
+                                                        {category}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Gender Select */}
+                                        <div>
+                                            <label className="block text-sm font-semibold text-yellow-400 mb-3 uppercase tracking-wide">
+                                                Gender *
+                                            </label>
+                                            <select
+                                                name="gender"
+                                                value={form.gender}
+                                                onChange={handleChange}
+                                                required
+                                                className="w-full px-3 py-2 sm:px-4 sm:py-3 bg-black border border-gray-700 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none transition-all duration-300 text-white text-sm sm:text-base"
+                                            >
+                                                {genders.map((gender) => (
+                                                    <option key={gender.value} value={gender.value}>
+                                                        {gender.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Place Select */}
+                                        <div className="sm:col-span-2 lg:col-span-1">
+                                            <label className="block text-sm font-semibold text-yellow-400 mb-3 uppercase tracking-wide">
+                                                Location Filter
+                                                {form.place && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleClearPlaceFilter}
+                                                        className="ml-3 text-xs bg-yellow-400 hover:bg-yellow-500 text-black px-3 py-1 rounded-full transition-all duration-200 font-medium"
+                                                    >
+                                                        Clear
+                                                    </button>
+                                                )}
+                                            </label>
+                                            <select
+                                                name="place"
+                                                value={form.place}
+                                                onChange={handleChange}
+                                                className="w-full px-3 py-2 sm:px-4 sm:py-3 bg-black border border-gray-700 rounded-md focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none transition-all duration-300 text-white text-sm sm:text-base"
+                                            >
+                                                <option value="">All Locations</option>
+                                                {places.map((place) => (
+                                                    <option key={place} value={place}>
+                                                        {place}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* Submit Button */}
+                                    <div className="text-center pt-4">
+                                        <button
+                                            type="submit"
+                                            disabled={loading || !dataLoaded}
+                                            className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-3 px-6 sm:py-4 sm:px-12 rounded-md text-base sm:text-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg uppercase tracking-wide w-full sm:w-auto"
+                                        >
+                                            {!dataLoaded ? (
+                                                <div className="flex items-center justify-center">
+                                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-black mr-3"></div>
+                                                    Loading Data...
+                                                </div>
+                                            ) : loading ? (
+                                                <div className="flex items-center justify-center">
+                                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-black mr-3"></div>
+                                                    Analyzing...
+                                                </div>
+                                            ) : (
+                                                "Generate Predictions"
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+
+                            {/* Error Message */}
+                            {error && (
+                                <div className="mb-8 p-4 sm:p-6 bg-red-900/20 border border-red-500/30 rounded-lg text-xs sm:text-base">
+                                    <div className="flex items-center">
+                                        <div className="flex-shrink-0">
+                                            <svg className="w-6 h-6 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                                                <path
+                                                    fillRule="evenodd"
+                                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                                                    clipRule="evenodd"
+                                                />
+                                            </svg>
+                                        </div>
+                                        <div className="ml-4">
+                                            <pre className="text-red-300 font-medium whitespace-pre-wrap text-sm">{error}</pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Results Section */}
+                            {results.length > 0 && (
+                                <div className="bg-gray-900 border border-yellow-400/20 rounded-lg shadow-2xl p-2 sm:p-8 overflow-x-auto">
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
+                                        <div>
+                                            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">Eligible Colleges ({results.length})</h2>
+                                            <p className="text-gray-400 text-sm sm:text-base">Based on your rank and preferences</p>
+                                            <div className="mt-2 p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                                                <p className="text-blue-300 text-sm">
+                                                    <strong>Prediction Range:</strong> Showing colleges with closing ranks from 
+                                                    <span className="text-yellow-400 font-bold"> {Math.floor(Number(form.rank) * 0.75)} </span> 
+                                                    onwards (25% below your rank of {form.rank})
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {form.place && (
+                                            <div className="flex items-center bg-yellow-400 text-black px-4 py-2 rounded-md font-semibold text-xs sm:text-base">
+                                                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path
+                                                        fillRule="evenodd"
+                                                        d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z"
+                                                        clipRule="evenodd"
+                                                    />
+                                                </svg>
+                                                {form.place}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full divide-y divide-gray-700 text-xs sm:text-sm md:text-base">
+                                            <thead className="bg-black">
+                                                <tr>
+                                                    <th className="px-2 py-2 sm:px-4 sm:py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
+                                                        Institute Name
+                                                    </th>
+                                                    <th className="px-2 py-2 sm:px-4 sm:py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
+                                                        Location
+                                                    </th>
+                                                    <th className="px-2 py-2 sm:px-4 sm:py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
+                                                        Branch
+                                                    </th>
+                                                    <th className="px-2 py-2 sm:px-4 sm:py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
+                                                        Closing Rank
+                                                    </th>
+                                                    <th className="px-2 py-2 sm:px-4 sm:py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
+                                                        Fee
+                                                    </th>
+                                                    <th className="px-2 py-2 sm:px-4 sm:py-4 text-left font-bold text-yellow-400 uppercase tracking-wider whitespace-nowrap">
+                                                        Affiliation
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-700">
+                                                {results.map((row, idx) => (
+                                                    <tr key={idx} className="hover:bg-gray-800/50 transition-all duration-200">
+                                                        <td className="px-2 py-2 sm:px-4 sm:py-4 text-white font-medium whitespace-nowrap">{row["Institute Name"]}</td>
+                                                        <td className="px-2 py-2 sm:px-4 sm:py-4 text-gray-300 whitespace-nowrap">{row["Place"]}</td>
+                                                        <td className="px-2 py-2 sm:px-4 sm:py-4 text-gray-300 whitespace-nowrap">{row["Branch Name"]}</td>
+                                                        <td className="px-2 py-2 sm:px-4 sm:py-4">
+                                                            <span className="inline-flex items-center px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium bg-yellow-400 text-black">
+                                                                {row["Closing Rank"]}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-2 py-2 sm:px-4 sm:py-4 text-yellow-400 font-semibold whitespace-nowrap">{row["Fee"]}</td>
+                                                        <td className="px-2 py-2 sm:px-4 sm:py-4 text-gray-300 whitespace-nowrap">{row["Affiliated To"]}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Professional Instructions Section */}
+                            <div className="mt-8 sm:mt-12 bg-gray-900 border border-yellow-400/20 rounded-lg shadow-2xl p-4 sm:p-8">
+                                <h3 className="text-2xl font-bold text-white mb-6">System Guide</h3>
+                                <div className="grid md:grid-cols-2 gap-8">
+                                    <div className="space-y-6">
+                                        <div className="flex items-start space-x-4">
+                                            <div className="flex-shrink-0 w-8 h-8 bg-yellow-400 text-black rounded-full flex items-center justify-center font-bold text-sm">
+                                                1
+                                            </div>
+                                            <div>
+                                                <h4 className="text-white font-semibold text-lg mb-2">Input Requirements</h4>
+                                                <p className="text-gray-400">
+                                                    Enter your POLYCET rank (e.g., 1000), select your preferred branch, category, and gender. All
+                                                    marked fields are mandatory for accurate predictions.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start space-x-4">
+                                            <div className="flex-shrink-0 w-8 h-8 bg-yellow-400 text-black rounded-full flex items-center justify-center font-bold text-sm">
+                                                2
+                                            </div>
+                                            <div>
+                                                <h4 className="text-white font-semibold text-lg mb-2">Location Filtering</h4>
+                                                <p className="text-gray-400">
+                                                    Optionally filter results by specific locations. Leave blank to view all eligible institutions
+                                                    across Telangana.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-6">
+                                        <div className="flex items-start space-x-4">
+                                            <div className="flex-shrink-0 w-8 h-8 bg-yellow-400 text-black rounded-full flex items-center justify-center font-bold text-sm">
+                                                3
+                                            </div>
+                                            <div>
+                                                <h4 className="text-white font-semibold text-lg mb-2">Results Analysis</h4>
+                                                <p className="text-gray-400">
+                                                    Review eligible colleges sorted by closing rank. Compare fees, locations, and affiliations to make
+                                                    informed decisions.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="bg-yellow-400/10 border border-yellow-400/30 p-6 rounded-lg">
+                                            <h4 className="text-yellow-400 font-bold text-lg mb-2">Data Accuracy</h4>
+                                            <p className="text-gray-300 text-sm">
+                                                Predictions are based on official Telangana POLYCET 2024 first phase cutoff data. Results are
+                                                indicative and subject to actual seat availability and counseling procedures.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Professional Footer */}
+                            <div className="text-center mt-8 sm:mt-12">
+                                <div className="bg-gray-900 border border-yellow-400/20 rounded-lg p-4 sm:p-6">
+                                    <div className="flex items-center justify-center mb-4">
+                                        <div className="w-8 sm:w-12 h-0.5 bg-yellow-400 mr-4"></div>
+                                        <div className="w-3 h-3 bg-yellow-400 rounded-full"></div>
+                                        <div className="w-8 sm:w-12 h-0.5 bg-yellow-400 ml-4"></div>
+                                    </div>
+                                    <p className="text-gray-300 text-base sm:text-lg mb-2">POLYCET College Predictor {new Date().getFullYear()}</p>
+                                    <p className="text-xs sm:text-sm text-gray-500 flex items-center justify-center gap-2">
+                                        Made with <span className="text-red-500 text-lg">❤️</span> using AI by Revanth Adepu
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
